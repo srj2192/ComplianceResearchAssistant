@@ -1,7 +1,3 @@
-"""
-Synthesizer: takes all task findings and generates the final compliance checklist.
-"""
-
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -27,9 +23,6 @@ def generate_checklist(goal: str, tasks: list[dict]) -> str:
     """
     client = _get_client()
 
-    # Build findings summary — only include completed tasks
-    # Context strategy: pass task title + finding only (not raw chunks)
-    # This keeps context lean: ~100 words per task vs thousands of raw chunk words
     findings_text = ""
     for task in tasks:
         if task.get("status") == "done":

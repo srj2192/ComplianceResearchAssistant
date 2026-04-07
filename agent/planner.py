@@ -1,7 +1,3 @@
-"""
-Planner: takes a user goal and returns a structured task list (JSON).
-"""
-
 import json
 import os
 from openai import OpenAI

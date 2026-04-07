@@ -1,8 +1,3 @@
-"""
-Executor: runs a single task by calling the appropriate tool,
-then uses the LLM to synthesize a finding from the tool results.
-"""
-
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -38,7 +33,6 @@ def run_task(task: dict, goal: str) -> dict:
     tool = task.get("tool", "rag")
     query = task.get("query", task["title"])
 
-    # --- Step 1: Call the tool ---
     try:
         if tool == "rag":
             raw = rag_search.search(query)
@@ -56,7 +50,6 @@ def run_task(task: dict, goal: str) -> dict:
         task["raw_results"] = []
         return task
 
-    # --- Step 2: Synthesize finding with LLM ---
     client = _get_client()
 
     prompt = EXECUTOR_PROMPT.format(

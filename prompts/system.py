@@ -1,6 +1,3 @@
-"""
-All prompts in one place for easy review and tuning.
-"""
 
 SYSTEM_PROMPT = """You are a compliance research expert specializing in GDPR and ISO 27001.
 You help organizations understand what regulatory requirements apply to them and generate

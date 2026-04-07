@@ -3,8 +3,15 @@ Streamlit UI for the Compliance Research Agent.
 Run with: streamlit run app.py
 """
 
+import logging
+import os
+
+# Silence Streamlit's file-watcher probing transformers' lazy vision submodules
+# (harmless "No module named 'torchvision'" noise — not needed for text embeddings)
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+logging.getLogger("streamlit.watcher.local_sources_watcher").setLevel(logging.ERROR)
+
 import streamlit as st
-from agent import run
 
 # config
 st.set_page_config(
@@ -30,7 +37,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # header
-st.title("Compliance Research Agent")
+st.title("🛡️ Compliance Research Agent")
 st.caption("Powered by GDPR & ISO 27001 knowledge base + live regulatory search")
 
 # sidebar
@@ -44,15 +51,15 @@ with st.sidebar:
     4. Generating a prioritized checklist
 
     **Documents indexed:**
-    - GDPR (EU 2016/679) — `CELEX_32016R0679_EN_TXT.pdf`
-    - NIST SP 800-53r5 — `NIST.SP.800-53r5.pdf`
+    - 📄 GDPR (EU 2016/679) — `CELEX_32016R0679_EN_TXT.pdf`
+    - 📄 NIST SP 800-53r5 — `NIST.SP.800-53r5.pdf`
 
     **Tools used:**
-    - FAISS vector search (local docs)
-    - Tavily web search (live updates)
+    - 🔍 FAISS vector search (local docs)
+    - 🌐 Tavily web search (live updates)
     """)
 
-# right main panel
+# input panel
 goal = st.text_area(
     "Describe your compliance goal",
     value=st.session_state.get("goal_input", ""),
@@ -95,6 +102,8 @@ if run_button and goal.strip():
                     unsafe_allow_html=True,
                 )
 
+    from agent.loop import run
+
     for event in run(goal):
         etype = event["type"]
         data = event["data"]
@@ -128,12 +137,17 @@ if run_button and goal.strip():
             st.subheader("Compliance Checklist")
             st.markdown(data)
 
+            # Download button
             st.download_button(
                 label="Download Checklist (.md)",
                 data=f"# Compliance Checklist\n\n**Goal:** {goal}\n\n{data}",
                 file_name="compliance_checklist.md",
                 mime="text/markdown",
             )
+
+        elif etype == "blocked":
+            st.warning(f"This doesn't look like a compliance question. {data}\n\nPlease describe a compliance, regulatory, or data protection goal.")
+            st.stop()
 
         elif etype == "error":
             st.error(f"Agent error: {data}")

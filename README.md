@@ -1,136 +1,94 @@
 # Compliance Research Agent
 
-A small AI agent that helps compliance teams understand what GDPR and NIST SP 800-53 requirements apply to their situation. You describe your goal, the agent breaks it into research tasks, searches the regulatory documents, and produces a prioritized checklist with citations.
-
-No agent frameworks used — custom loop, prompts, and context handling throughout.
+An AI agent built on the pattern of a plan and execute agent that takes a compliance goal, breaks it into research tasks, executes them against GDPR and NIST SP 800-53 documents, and produces a prioritized checklist with citations.
 
 ---
 
-## How the agent works
+## How the agent loop works
 
-The user types a compliance goal. The agent runs three stages:
+The user describes a compliance goal. The agent runs three stages in sequence:
 
-**1. Planning** — GPT-4.1-mini reads the goal and returns a JSON list of 4-6 research tasks, each tagged with which tool to use (RAG or web search).
+**Plan** — GPT-4.1-mini reads the goal and returns a structured JSON list of 4-6 tasks. Each task has a title, description, and a tool hint (RAG or web search). This is the TODO list.
 
-**2. Execution** — For each task, the agent calls the right tool, gets results back, then asks the LLM to write a short finding based only on what the tool returned. This repeats until all tasks are done.
+**Execute** — The loop iterates through each task. For every task it calls the assigned tool, gets results back, and asks the LLM to write a short finding based only on what the tool returned. The task status updates from pending → in progress → done. Each task is independent — nothing from a previous task leaks into the next one.
 
-**3. Synthesis** — GPT-4.1 takes all the findings and produces the final checklist, grouped by theme, with priority levels and source citations.
+**Synthesize** — Once all tasks are done, GPT-4.1 takes the goal and all the findings and produces the final compliance checklist with priority levels and source citations.
 
-The loop itself is about 30 lines in `agent/loop.py` — a simple generator that yields status events so the UI can show real-time progress.
+The loop lives in `agent/loop.py` and is a plain Python generator that yields status events. The Streamlit UI consumes these events to show live task progress.
 
 ---
 
-## Tools
+## Tools integrated
 
-**FAISS RAG** — The two regulatory PDFs (GDPR and NIST SP 800-53r5) are chunked into 500-word segments, embedded with `all-MiniLM-L6-v2`, and stored in a local FAISS index. When a task needs to look up specific requirements, it does a semantic search over this index and gets back the top 5 most relevant chunks.
+**FAISS vector search (RAG)** — GDPR and NIST SP 800-53r5 PDFs are chunked into 500-word segments, embedded with `sentence-transformers`, and stored in a local FAISS index. When a task needs specific article or control lookups, it searches this index and retrieves the top 5 most relevant chunks.
 
-**Tavily Web Search** — For tasks that need current information (recent enforcement actions, updated guidance, etc.), the agent calls Tavily, filtered to authoritative domains like `edpb.europa.eu`, `ico.org.uk`, and `nist.gov`.
-
-The planner decides which tool each task should use. RAG for specific article/control lookups, web for anything that might have changed recently.
+**Tavily web search** — For tasks that need current information (recent enforcement, updated guidance), the agent calls Tavily filtered to authoritative domains like `edpb.europa.eu`, `ico.org.uk`, and `nist.gov`.
 
 ---
 
 ## Context strategy
 
-The main challenge is that GDPR alone is ~88 pages. Passing the full document into every LLM call isn't practical.
+GDPR is ~88 pages. NIST 800-53 is ~500 pages. Passing full documents into every call isn't feasible.
 
-The approach here is: retrieve first, summarize second, keep only the summary. Each task gets the top 5 retrieved chunks (~800 tokens), the LLM writes a 4-6 sentence finding, and only that finding goes forward to the synthesizer. By the time we hit synthesis, the context is just the goal plus one short paragraph per task — maybe 600 tokens total instead of tens of thousands.
+The approach: retrieve → summarize → discard. Each task gets the top 5 chunks from the tool (~800 tokens). The LLM writes a 4-6 sentence finding from those chunks. The raw chunks are then dropped — they never accumulate. Only the short finding moves forward.
 
-Raw chunks are never accumulated across tasks. Each task starts clean.
+By synthesis, the context is the original goal plus one short paragraph per task — roughly 600 tokens total. Every LLM call starts clean with no history from previous tasks.
 
----
-
-## How I would evaluate it
-
-**The three things I'd check first:**
-
-1. **Citation accuracy** — Does every checklist item cite a real article or control? Pick 10 outputs, manually verify each citation against the source document. Any fabricated reference is a hard failure. This is the most important check for a compliance tool.
-
-2. **Retrieval relevance** — For a known query like "data retention requirements", do the top 3 FAISS results actually contain the answer? If not, the chunk size or embedding model needs tuning. Easy to spot by logging which chunks get returned.
-
-3. **Coverage on known scenarios** — Run the 5 test scenarios below and check whether the expected key requirements appear in the output. For example, a healthcare SaaS query should always surface GDPR Article 9 (special category data) and Article 35 (DPIA). If it doesn't, something is wrong with retrieval or the planner prompt.
-
-**Optional — if more time was available:**
-
-- **LLM-as-judge scoring** — Send the generated checklist to GPT-4 with a rubric (accuracy, completeness, actionability, 1-5 each) and log the scores over many runs. Makes regression testing fast.
-- **Hallucination rate** — Track how often the model adds requirements that aren't in the retrieved chunks. Can be caught by comparing finding text against the raw tool results.
-- **Latency per task** — Log how long each tool call and LLM call takes. Useful for identifying which step is the bottleneck.
+Within a single run, the agent maintains state: the task list with statuses and the findings dict are passed through the loop and available to the synthesizer. There is no cross-run memory — each new goal starts fresh.
 
 ---
 
 ## Evaluation scenarios
 
-**Scenario 1 — Healthcare SaaS**
-Goal: "We're building a healthcare SaaS app in the EU that stores patient data. What do we need to comply with?"
-Pass: checklist includes GDPR Art. 9 (special categories), Art. 35 (DPIA), Art. 32 (security), and relevant NIST access control and audit logging controls.
+**Healthcare SaaS**
+"We're building a healthcare SaaS in the EU that stores patient data. What GDPR and security requirements do we need to meet?"
+A good result references GDPR Art. 9 (health data as special category), Art. 35 (DPIA), and NIST access control controls — not a generic data protection overview.
 
-**Scenario 2 — EU to US data transfer**
-Goal: "We want to move EU customer data to our US AWS servers. What are the requirements?"
-Pass: agent surfaces GDPR Chapter V, Standard Contractual Clauses, and references the EU-US Data Privacy Framework.
+**EU to US data transfer**
+"We want to transfer EU customer data to our US-based AWS servers. What do we need to comply with?"
+A good result covers GDPR Chapter V, Standard Contractual Clauses, and the EU-US Data Privacy Framework specifically — not just general security advice.
 
-**Scenario 3 — Small startup, DPO question**
-Goal: "We're a 10-person startup processing user emails. Do we need a Data Protection Officer?"
-Pass: agent correctly identifies Art. 37 thresholds and concludes a DPO is likely not required at this scale, while noting exceptions.
+**DPO for a small startup**
+"We're a 10-person startup processing user emails. Do we need a Data Protection Officer?"
+A good result correctly applies Art. 37 thresholds and gives a clear answer rather than a generic "it depends."
 
-**Scenario 4 — Cloud SaaS security controls**
-Goal: "What security controls do we need for a cloud SaaS product under NIST 800-53?"
-Pass: agent returns a scoped list of controls (access control, audit, configuration management) rather than dumping all 1000+ controls.
+**NIST controls for SaaS**
+"What NIST 800-53 controls apply to a cloud SaaS product?"
+A good result returns a focused, relevant subset — not a dump of all 1000+ controls in the document.
 
-**Scenario 5 — Out of scope**
-Goal: "Help me write a Python script."
-Pass: agent redirects to compliance aspects or declines gracefully. Should not hallucinate regulatory requirements.
+**Out of scope input**
+"Help me write a Python script."
+A good result is the guardrail stopping the agent before it runs and asking for a compliance-related goal.
 
 ---
 
 ## Setup
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Add API keys to .env
-cp .env.example .env
-
-# Build the FAISS index
-python ingestion/ingest_docs.py
-
-# Start the app
-streamlit run app.py 
-
-Note: streamlit take few second s to load wait for it. 
+uv sync
+cp .env.example .env        # add OpenAI and Tavily API keys
+python ingestion/ingest_docs.py   # build FAISS index once
+streamlit run app.py
 ```
 
-API keys needed:
-- OpenAI — platform.openai.com
-- Tavily — app.tavily.com (used free tier: only upto 1000 searches/month)
 ---
 
 ## Project structure
 
 ```
 ├── agent/
-│   ├── loop.py          # the main agent loop
+│   ├── loop.py          # main agent loop
 │   ├── planner.py       # goal → task list
 │   ├── executor.py      # task → tool → finding
-│   └── synthesizer.py   # findings → checklist
+│   ├── synthesizer.py   # findings → checklist
+│   └── guardrails.py    # input validation
 ├── tools/
-│   ├── rag_search.py    # FAISS search
-│   └── web_search.py    # Tavily search
+│   ├── rag_search.py    # FAISS semantic search
+│   └── web_search.py    # Tavily web search
 ├── ingestion/
-│   └── ingest_docs.py   # builds the FAISS index from PDFs
+│   └── ingest_docs.py   # PDF → FAISS index
 ├── prompts/
-│   └── system.py        # all prompts in one place
-├── docs/                # put your PDFs here
-├── app.py               # Streamlit UI
-└── requirements.txt
+│   └── system.py        # all prompts
+├── docs/                # regulatory PDFs
+└── app.py               # Streamlit UI
 ```
-
----
-
-## Trade-offs and what I'd do differently
-
-The planner assigns each task a tool upfront rather than letting the LLM decide dynamically, but dynamic tool selection tends to make unexpected choices that are hard to debug.
-
-FAISS with IndexFlatL2 does exact nearest-neighbor search. For 598 chunks this is fine. At 100k+ chunks I'd switch to an approximate index (IVF) or move to a managed vector DB.
-
-The runs are stateless — no session history is kept. This keeps things simple but means you can't ask follow-up questions. Adding multi-turn support would be the first thing I'd build next.

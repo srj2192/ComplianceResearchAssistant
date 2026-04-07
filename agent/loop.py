@@ -1,12 +1,8 @@
-"""
-Core agent loop: orchestrates planner → executor → synthesizer.
-This is the main execution engine — no frameworks, just a simple loop.
-"""
-
 from typing import Generator
 from agent.planner import generate_plan
 from agent.executor import run_task
 from agent.synthesizer import generate_checklist
+from agent.guardrails import check as guardrail_check
 
 
 def run(goal: str) -> Generator[dict, None, None]:
@@ -14,13 +10,20 @@ def run(goal: str) -> Generator[dict, None, None]:
     Runs the full compliance agent pipeline for a given goal.
 
     Yields status events so the UI can show real-time progress:
-        {"type": "plan",     "data": plan}
+        {"type": "plan",       "data": plan}
         {"type": "task_start", "data": task}
         {"type": "task_done",  "data": task}
         {"type": "task_fail",  "data": task}
-        {"type": "result",   "data": checklist_text}
-        {"type": "error",    "data": error_message}
+        {"type": "result",     "data": checklist_text}
+        {"type": "error",      "data": error_message}
+        {"type": "blocked",    "data": reason_string}
     """
+
+    # guardrail check
+    guard = guardrail_check(goal)
+    if not guard["is_relevant"]:
+        yield {"type": "blocked", "data": guard["reason"]}
+        return
 
     try:
         plan = generate_plan(goal)
@@ -30,7 +33,6 @@ def run(goal: str) -> Generator[dict, None, None]:
         return
 
     tasks = plan["tasks"]
-
     for task in tasks:
         task["status"] = "in_progress"
         yield {"type": "task_start", "data": task}

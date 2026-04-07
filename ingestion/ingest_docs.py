@@ -102,10 +102,10 @@ def build_index():
             "sources": [f.name for f in pdf_files],
         }, f, indent=2)
 
-    print(f"\n[✓] FAISS index built successfully")
-    print(f"    Chunks: {len(all_chunks)}")
-    print(f"    Dimension: {dimension}")
-    print(f"    Saved to: {INDEX_DIR}")
+    print(f"\nFAISS index built successfully")
+    print(f"Chunks: {len(all_chunks)}")
+    print(f"Dimension: {dimension}")
+    print(f"Saved to: {INDEX_DIR}")
 
 
 if __name__ == "__main__":
