@@ -38,30 +38,6 @@ Within a single run, the agent maintains state: the task list with statuses and 
 
 ---
 
-## Evaluation scenarios
-
-**Healthcare SaaS**
-"We're building a healthcare SaaS in the EU that stores patient data. What GDPR and security requirements do we need to meet?"
-A good result references GDPR Art. 9 (health data as special category), Art. 35 (DPIA), and NIST access control controls — not a generic data protection overview.
-
-**EU to US data transfer**
-"We want to transfer EU customer data to our US-based AWS servers. What do we need to comply with?"
-A good result covers GDPR Chapter V, Standard Contractual Clauses, and the EU-US Data Privacy Framework specifically — not just general security advice.
-
-**DPO for a small startup**
-"We're a 10-person startup processing user emails. Do we need a Data Protection Officer?"
-A good result correctly applies Art. 37 thresholds and gives a clear answer rather than a generic "it depends."
-
-**NIST controls for SaaS**
-"What NIST 800-53 controls apply to a cloud SaaS product?"
-A good result returns a focused, relevant subset — not a dump of all 1000+ controls in the document.
-
-**Out of scope input**
-"Help me write a Python script."
-A good result is the guardrail stopping the agent before it runs and asking for a compliance-related goal.
-
----
-
 ## Setup
 
 ```bash
